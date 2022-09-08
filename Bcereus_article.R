@@ -7,20 +7,12 @@ library(tidyverse)
 library(readxl)
 library(broom)
 
-## Load data
-
-read_excel("data/Inactivation pathogens2008.xls", sheet = "Bacillus (2)") %>%
-    select(Odd, D_val = "D (min)", temp = "T (°C)") %>%
-    mutate(logD = log10(D_val)) %>%
-    ggplot(aes(x = temp, y = logD, colour = Odd)) +
-        geom_point() +
-        geom_smooth(method = "lm")
-
+## Loading the data ------------------------------------------------------------
 
 my_data <- read_excel("data/Inactivation pathogens2008.xls", sheet = "Bacillus (2)") %>%
     select(Odd, D_val = "D (min)", temp = "T (°C)") %>%
     filter(Odd == "FALSE") %>%
-    mutate(logD = log10(D_val))%>%
+    mutate(logD = log10(D_val)) %>%
     select(temp, logD) %>% 
     na.omit()
 
@@ -29,20 +21,14 @@ ggplot(my_data, aes(x = temp, y = logD)) +
     # geom_smooth(method = "lm") +
     xlab("Temperature (ºC)") + ylab("D-value (log min)")
 
-my_data %>%
-    filter(temp == 100) %>%
-    ggplot() + geom_density(aes(logD), fill = "darkgrey") + 
-    xlab("D-value (log min)") + ylab("Probability density")
-
-
-## Lineal stan model
+## Fitting a classical model using Stan ----------------------------------------
 
 mean(c(max(my_data$temp), min(my_data$temp)))
 mean(my_data$temp)
-x_ref <- 103
+x_ref <- 103  # We use the mean temperature as reference
 
 # nls(logD ~ logDref - (temp - x_ref)/z, data = my_data,
-#     start = list(logDref = 1, z = 5))
+#     start = list(logDref = 1, z = 5))  # Equivalent, frequentist model
 
 set.seed(14212)
 
@@ -57,9 +43,9 @@ lin_model <- stan(file = "lineal_cereus.stan",
 print(lin_model)
 post_linmodel <- As.mcmc.list(lin_model)
 
-## Finding the right truncation by fixing U to the max
+## Application of the heuristic algorithm to define U and L --------------------
 
-#-  min L
+#-  Step 1: Fixing L to the minimum value in the dataset
 
 set.seed(91791)
 
@@ -119,8 +105,7 @@ U_models %>%
           legend.position = "top") +
     xlab("Value of U (log min)") + ylab("Parameter estimate") 
 
-
-#- Second step
+#-  Step 2: Fixing U to the value identified in the previous step --------------
 
 set.seed(91791)
 
@@ -178,7 +163,7 @@ L_models %>%
           legend.position = "top") +
     xlab("Value of L (log min)") + ylab("Parameter estimate") 
 
-#- Last step
+#-  Step 3 (last): Fixing L to the value identified above ----------------------
 
 set.seed(91791)
 
@@ -237,13 +222,17 @@ U_models_2 %>%
           legend.position = "top") +
     xlab("Value of U (log min)") + ylab("Parameter estimate") 
 
-## Look at the posteriors
+#- The algorithm seems to have converged, so we move on
 
-trunc_model <- U_models_2[[7]]
+## Analysis of the fitted model ------------------------------------------------
+
+trunc_model <- U_models_2[[7]]  # The 7th model is the best one according to our criteria
 trunc_model
 lin_model
 
 set.seed(12412)
+
+## Comparison of the posterior distributions
 
 list(Truncated = trunc_model,
      Classical = lin_model) %>%
@@ -251,7 +240,7 @@ list(Truncated = trunc_model,
     map(as.data.frame) %>%
     imap_dfr(., ~ mutate(.x, model = .y)) %>%
     select(-lp__) %>%
-    mutate(logD130 = logDref - (130-x_ref)/z) %>%
+    mutate(logD130 = logDref - (130 - x_ref)/z) %>%
     gather(par, value, -model) %>%
     ggplot() +
         geom_density(aes(value, colour = model)) +
@@ -264,7 +253,7 @@ list(Truncated = trunc_model,
     map(as.data.frame) %>%
     imap_dfr(., ~ mutate(.x, model = .y)) %>%
     select(-lp__) %>%
-    mutate(logD130 = logDref - (130-x_ref)/z) %>%
+    mutate(logD130 = logDref - (130 - x_ref)/z) %>%
     gather(par, value, -model) %>%
     ggplot() +
     geom_boxplot(aes(x = par, y = value, colour = model)) +
@@ -272,6 +261,7 @@ list(Truncated = trunc_model,
     xlab("") + ylab("") +
     theme(legend.title = element_blank())
     
+## Table of parameter estimates
 
 set.seed(12412)
 
@@ -402,6 +392,7 @@ list(`Truncated model` = trunc_model,
 #           axis.title = element_text(size = 16),
 #           legend.text = element_text(size = 14)) 
         
+## Comparison of predicted D-values
 
 set.seed(12412)
 
